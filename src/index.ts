@@ -1,6 +1,6 @@
-import type { Plugin } from "vite";
+import type { Plugin, ResolvedConfig } from "vite";
 import { gzipSync } from "zlib";
-import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import ejs from "ejs";
 import type { NormalizedOutputOptions, OutputAsset, OutputChunk } from "rollup";
 import mime from "mime-types";
@@ -16,18 +16,22 @@ interface Asset {
 
 /**
  * @param logging Whether or not to enable console output during build. Defaults to false
+ * @param includePublic Whether or not to include static files from Vite's `public/` folder. Defaults to true
  * @param enforce Enforce plugin invocation tier similar to webpack loaders.
  */
 export interface PluginConfig {
   logging?: boolean;
+  includePublic?: boolean;
   enforce?: Plugin["enforce"];
 }
 
 export function espViteBuild(
   configParams: PluginConfig = {
     logging: false,
+    includePublic: true,
   }
 ): Plugin {
+  let config: ResolvedConfig;
   let assets: Asset[] = [];
 
   function addAsset(
@@ -101,10 +105,30 @@ export function espViteBuild(
     name: "vite-plugin-preact-esp32",
     enforce: configParams.enforce,
     apply: "build",
+    configResolved(_config) {
+      config = _config
+    },
     writeBundle(options, bundle) {
       for (const [filename, data] of Object.entries(bundle)) {
         console.log("Processing", filename);
         if (data) {
+          addAsset(filename, data, options);
+        }
+      }
+      if (configParams.includePublic) {
+        const publicDirFiles = readdirSync(config.publicDir);
+        for (const filename of publicDirFiles) {
+          console.log("Processing", filename);
+          const filePath = path.join(config.publicDir, filename);
+          const data = {
+            type: "asset",
+            source: new Uint8Array(
+              readFileSync(filePath)
+            ),
+            fileName: filename,
+            name: filename,
+            needsCodeReference: false,
+          } satisfies OutputAsset;
           addAsset(filename, data, options);
         }
       }
